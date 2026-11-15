@@ -94,7 +94,7 @@ renamed or rearranged, so any project can be picked up the same way.
 README.md          shared rules (from the base)
 AGENTS.md          one-line pointer to README.md, for tools that look for it
 PROJECT.md         this project's purpose, layout and own rules
-TODO.md            open items: documents to find, questions for me, work to do
+TODO.md            open items: documents to find, work to do, decisions that need time
 inbox/             drop zone for new material, empty after filing
 sources/           originals, as sources/<category>/<year>/<file>
 records/           the source of truth everything is written from
@@ -157,8 +157,10 @@ contents only; rules live in this file and `PROJECT.md`.
   searching (text copies, transcriptions) are not duplicates.
 - When a web page is the evidence, save it as a PDF print with the URL and
   date in the header and footer, not as retyped text.
-- Anything missing, unverified or undecided goes in `TODO.md` (or wherever
-  `PROJECT.md` says), and comes out when resolved.
+- Anything I can answer now, ask me now, in the question UI, and record the
+  answer. Only what can't be settled in the session goes in `TODO.md` (or
+  wherever `PROJECT.md` says): documents to find, work to do later, and
+  decisions I need time for. Each item comes out when resolved.
 - `reference/` is for tone and context. Take no fact from it without my
   confirmation.
 
@@ -196,6 +198,9 @@ contents only; rules live in this file and `PROJECT.md`.
   public source, look it up and record where it came from.
 - Ask me directly for details only I know. Where my estimate is good enough,
   record it as my estimate rather than waiting for a document.
+- Never park a question in `TODO.md` that I could answer in the session.
+  Before adding anything to `TODO.md`, and before ending a piece of work,
+  ask me every open question that I could answer now.
 
 ### Tools and state
 
@@ -257,7 +262,8 @@ failure and report it in a short message.
 3. **Check.** Run `python3 scripts/check.py` and fix what it reports. Then
    run the extra checks in `PROJECT.md`, and confirm that:
    - `PROJECT.md`'s layout and rules match what is actually in the repo
-   - `TODO.md` reflects what is actually outstanding
+   - `TODO.md` reflects what is actually outstanding, and holds no question
+     I could have answered in the session
    - no temporary files are staged
 4. **Commit and push.** Commit everything with a concise message and push to
    `origin`.
