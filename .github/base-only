@@ -1,0 +1,3 @@
+# Files that belong to the base only. The sync and wind-up never bring them into
+# a project, and scripts/check.py flags them if one turns up.
+LICENSE

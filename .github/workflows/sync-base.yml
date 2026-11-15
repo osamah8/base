@@ -1,0 +1,169 @@
+name: Sync with the base
+
+# Merges osamah8/base into this project's main branch every morning, so a
+# change to the shared rules reaches every project. Wind-up does the same by
+# hand; this catches projects nobody has wound up in a while.
+#
+# Runs only where the repository variable BASE_URL says what this project is
+# built on (https://github.com/osamah8/base.git). The base sets none, so it
+# doesn't run there.
+#
+# osamah8/base is public, so no token is needed. If the base is ever made
+# private again, add the repository secret BASE_SYNC_TOKEN: a fine-grained
+# personal access token with read-only Contents access to it.
+#
+# What it keeps:
+# - files marked merge=ours in .gitattributes: the project's own
+# - shared files the project deleted on purpose: they stay deleted
+# A real conflict is left alone and opens an issue.
+
+on:
+  schedule:
+    - cron: '23 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sync-base
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: vars.BASE_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge the base
+        id: merge
+        env:
+          BASE_URL: ${{ vars.BASE_URL }}
+          BASE_SYNC_TOKEN: ${{ secrets.BASE_SYNC_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git config merge.ours.driver true
+
+          url="$BASE_URL"
+          if [ -n "$BASE_SYNC_TOKEN" ]; then
+            url="${BASE_URL/https:\/\//https:\/\/x-access-token:${BASE_SYNC_TOKEN}@}"
+          fi
+          git remote add base "$url"
+          git -c http.https://github.com/.extraheader= fetch base main
+          echo "base_sha=$(git rev-parse base/main)" >> "$GITHUB_OUTPUT"
+
+          if git merge-base --is-ancestor base/main HEAD; then
+            echo 'result=up-to-date' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          ancestor=$(git merge-base HEAD base/main || true)
+
+          # Whether a path sits in a folder the base had and this project deleted.
+          in_deleted_folder() {
+            local dir
+            dir=$(dirname "$1")
+            while [ "$dir" != . ]; do
+              if [ -n "$ancestor" ] && git cat-file -e "$ancestor:$dir" 2>/dev/null && ! git cat-file -e "HEAD:$dir" 2>/dev/null; then
+                return 0
+              fi
+              dir=$(dirname "$dir")
+            done
+            return 1
+          }
+
+          git merge --no-ff --no-commit -m "Sync with the base" base/main || true
+
+          if ! git rev-parse -q --verify MERGE_HEAD > /dev/null; then
+            echo 'result=conflict' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Deleted here, changed in the base: keep it deleted.
+          git diff --name-only --diff-filter=U -z | while IFS= read -r -d '' path; do
+            if ! git ls-files -u -- "$path" | awk '$3 == 2 { ours = 1 } END { exit !ours }'; then
+              git rm -q -f -- "$path"
+              echo "- Kept deleted: \`$path\`" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          if [ -n "$(git diff --name-only --diff-filter=U)" ]; then
+            git merge --abort
+            echo 'result=conflict' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # New in the base, but inside a folder this project deleted.
+          git diff --cached --name-only --diff-filter=A -z HEAD | while IFS= read -r -d '' path; do
+            if in_deleted_folder "$path"; then
+              git rm -q -f -- "$path"
+              echo "- Kept deleted: \`$path\`" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          # GitHub won't let this Action push changes to workflow files, so a base
+          # change to one is left for wind-up, which runs with my own credentials.
+          if [ -n "$(git diff --cached --name-only HEAD -- .github/workflows)" ]; then
+            git merge --abort
+            echo 'result=workflow' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Files that belong to the base only (its licence): never bring them in.
+          if [ -f .github/base-only ]; then
+            grep -v '^#' .github/base-only | while IFS= read -r path; do
+              if [ -n "$path" ] && ! git cat-file -e "HEAD:$path" 2>/dev/null && [ -e "$path" ]; then
+                git rm -q -f -- "$path"
+                echo "- Left out (base only): \`$path\`" >> "$GITHUB_STEP_SUMMARY"
+              fi
+            done
+          fi
+
+          git commit -q --no-edit
+          git push -q origin HEAD:main
+          echo 'result=merged' >> "$GITHUB_OUTPUT"
+
+      - name: Open an issue
+        if: steps.merge.outputs.result == 'conflict' || steps.merge.outputs.result == 'workflow'
+        uses: actions/github-script@v8
+        env:
+          BASE_SHA: ${{ steps.merge.outputs.base_sha }}
+        with:
+          script: |
+            const workflow = '${{ steps.merge.outputs.result }}' === 'workflow';
+            const title = workflow ? 'The base changed the sync workflow: wind up to apply it' : 'Sync with the base needs a hand';
+            const body = workflow ? [
+              'The base changed a file in `.github/workflows/`. GitHub doesn\'t let this Action push workflow changes, so the daily sync has paused until they are merged by hand.',
+              '',
+              `Base commit: ${process.env.BASE_SHA}`,
+              '',
+              'Say "Wind up" to an agent in this repo (step 2 merges the base), or run `git fetch base main && git merge base/main` and push. Then close this issue.',
+            ].join('\n') : [
+              'The daily sync could not merge the base into `main` by itself.',
+              '',
+              `Base commit: ${process.env.BASE_SHA}`,
+              '',
+              'Resolve it locally, or say "Wind up" to an agent in this repo:',
+              '```sh',
+              'git fetch base main',
+              'git merge base/main',
+              '```',
+              '',
+              'Keep this project\'s own files (PROJECT.md, TODO.md, sources/, reference/ and its own folders) and the base\'s shared files (README.md, guidance/, scripts/, .github/). A conflict in a shared file means it was edited here: move that change to the base.',
+            ].join('\n');
+            const { data: issues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner, repo: context.repo.repo, state: 'open', labels: 'base-sync',
+            });
+            if (!issues.some((i) => i.title === title)) {
+              await github.rest.issues.create({
+                owner: context.repo.owner, repo: context.repo.repo, title, body, labels: ['base-sync'],
+              });
+            }

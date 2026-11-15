@@ -1,0 +1,7 @@
+# A project's own files. When the base changes one of these, the sync keeps
+# the project's version: the base's copy is only a starting template.
+# Needs `git config merge.ours.driver true` in each clone (the sync sets it).
+PROJECT.md merge=ours
+TODO.md merge=ours
+sources/README.md merge=ours
+reference/README.md merge=ours
